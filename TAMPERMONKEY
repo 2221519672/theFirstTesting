@@ -1,0 +1,266 @@
+// ==UserScript==
+// @name         本地網頁即時關鍵字節點篩選器
+// @namespace    http://tampermonkey.net
+// @version      3.7
+// @description  針對 127.0.0.1:5500 的指定節點過濾器（關閉或隱藏時一律強制還原所有項目）
+// @author       AI Assistant
+// @match        *://127.0.0.1:5500/*
+// @grant        none
+// ==/UserScript==
+
+(function() {
+    'use strict';
+
+    console.log("[🔍 Filter Script] 腳本已成功注入 127.0.0.1 本地網頁！");
+
+    const TARGET_SELECTOR = '.item-card';
+    const EDGE_PADDING = 5; 
+
+    // 1. 創建浮動搜尋 UI 容器
+    const searchContainer = document.createElement('div');
+    searchContainer.style = `
+        position: fixed; top: 33vh; right: 5px; z-index: 999999; background: #ffffff; 
+        padding: 5px 8px; border: 1px solid #e4e7ed; box-shadow: 0 4px 12px rgba(0,0,0,0.12); 
+        border-radius: 6px; display: none; align-items: center; gap: 6px;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        opacity: 0.5; cursor: move; user-select: none;
+        transition: opacity 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+    `;
+    
+    // 2. 創建即時輸入欄
+    const input = document.createElement('input');
+    input.type = 'text'; input.placeholder = '過濾或 /正則/...';
+    input.style = 'padding: 4px 8px; border: 1px solid #dcdfe6; border-radius: 4px; outline: none; font-size: 12px; width: 140px; background: #ffffff; color: #333333; cursor: text;';
+    
+    // 3. 創建微型 ✕ 關閉按鈕
+    const closeBtn = document.createElement('button');
+    closeBtn.innerHTML = '&#x2715;'; 
+    closeBtn.style = `
+        display: flex; align-items: center; justify-content: center;
+        width: 18px; height: 18px; border: none; border-radius: 50%;
+        background: transparent; color: #909399; font-size: 10px;
+        cursor: pointer; padding: 0; line-height: 1; transition: all 0.2s;
+    `;
+    closeBtn.addEventListener('mouseenter', () => {
+        closeBtn.style.background = '#f56c6c';
+        closeBtn.style.color = '#ffffff';
+    });
+    closeBtn.addEventListener('mouseleave', () => {
+        closeBtn.style.background = 'transparent';
+        closeBtn.style.color = '#909399';
+    });
+
+    searchContainer.appendChild(input);
+    searchContainer.appendChild(closeBtn);
+    document.body.appendChild(searchContainer);
+
+    // ==========================================
+    // 滑鼠自由拖曳與自動貼邊邏輯
+    // ==========================================
+    let isDragging = false;
+    let startX, startY, initialLeft, initialTop;
+
+    searchContainer.addEventListener('mousedown', (e) => {
+        if (e.target === input || e.target === closeBtn) return;
+        
+        isDragging = true;
+        searchContainer.style.transition = 'opacity 0.2s ease-in-out, box-shadow 0.2s ease-in-out';
+        
+        startX = e.clientX;
+        startY = e.clientY;
+        
+        const rect = searchContainer.getBoundingClientRect();
+        initialLeft = rect.left;
+        initialTop = rect.top;
+        
+        searchContainer.style.right = 'auto';
+        searchContainer.style.left = initialLeft + 'px';
+        searchContainer.style.top = initialTop + 'px';
+        
+        e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', (e) => {
+        if (!isDragging) return;
+        const dx = e.clientX - startX;
+        const dy = e.clientY - startY;
+        
+        let newLeft = initialLeft + dx;
+        let newTop = initialTop + dy;
+        const windowWidth = window.innerWidth;
+        const windowHeight = window.innerHeight;
+        const containerWidth = searchContainer.offsetWidth;
+        const containerHeight = searchContainer.offsetHeight;
+
+        if (newLeft < 0) newLeft = 0;
+        if (newLeft > windowWidth - containerWidth) newLeft = windowWidth - containerWidth;
+        if (newTop < 0) newTop = 0;
+        if (newTop > windowHeight - containerHeight) newTop = windowHeight - containerHeight;
+
+        searchContainer.style.left = newLeft + 'px';
+        searchContainer.style.top = newTop + 'px';
+    });
+
+    document.addEventListener('mouseup', () => {
+        if (!isDragging) return;
+        isDragging = false;
+        
+        const windowWidth = window.innerWidth;
+        const containerWidth = searchContainer.offsetWidth;
+        const rect = searchContainer.getBoundingClientRect();
+        const currentLeft = rect.left;
+        
+        const isLeftHalf = (currentLeft + containerWidth / 2) < (windowWidth / 2);
+        
+        searchContainer.style.transition = 'left 0.3s cubic-bezier(0.25, 1, 0.5, 1), opacity 0.2s ease-in-out, box-shadow 0.2s ease-in-out';
+        
+        if (isLeftHalf) {
+            searchContainer.style.left = EDGE_PADDING + 'px'; 
+        } else {
+            searchContainer.style.left = (windowWidth - containerWidth - EDGE_PADDING) + 'px'; 
+        }
+    });
+
+    // ==========================================
+    // 半透明效果邏輯 (Hover & Focus)
+    // ==========================================
+    let isFocused = false;
+
+    searchContainer.addEventListener('mouseenter', () => {
+        searchContainer.style.opacity = '1';
+        searchContainer.style.boxShadow = '0 6px 16px rgba(0,0,0,0.18)';
+    });
+
+    searchContainer.addEventListener('mouseleave', () => {
+        if (!isFocused && !isDragging) {
+            searchContainer.style.opacity = '0.5';
+            searchContainer.style.boxShadow = '0 4px 12px rgba(0,0,0,0.12)';
+        }
+    });
+
+    input.addEventListener('focus', () => {
+        isFocused = true;
+        searchContainer.style.opacity = '1';
+        searchContainer.style.boxShadow = '0 6px 16px rgba(0,0,0,0.18)';
+    });
+
+    input.addEventListener('blur', () => {
+        isFocused = false;
+        setTimeout(() => {
+            if (!searchContainer.matches(':hover') && !isDragging) {
+                searchContainer.style.opacity = '0.5';
+                searchContainer.style.boxShadow = '0 4px 12px rgba(0,0,0,0.12)';
+            }
+        }, 100);
+    });
+
+    // ==========================================
+    // 防抖（Debounce）與過濾邏輯
+    // ==========================================
+    function debounce(func, delay) {
+        let timeoutId;
+        return function(...args) {
+            if (timeoutId) clearTimeout(timeoutId);
+            timeoutId = setTimeout(() => {
+                func.apply(this, args);
+            }, delay);
+        };
+    }
+
+    const filterElements = () => {
+        const rawValue = input.value.trim();
+        const elements = document.querySelectorAll(TARGET_SELECTOR);
+        
+        let isRegex = false;
+        let regexObj = null;
+
+        if (rawValue.startsWith('/') && rawValue.endsWith('/') && rawValue.length > 2) {
+            try {
+                const pattern = rawValue.slice(1, -1);
+                regexObj = new RegExp(pattern, 'i');
+                isRegex = true;
+                console.log(`[🔮 正則模式啟動] 成功解析正則表達式為: ${regexObj}`);
+            } catch (e) {
+                console.warn(`[⚠️ 正則語法不正確] 暫時無法解析: "${rawValue}"`, e.message);
+                return; 
+            }
+        }
+
+        let hiddenCount = 0;
+        let visibleCount = 0;
+
+        elements.forEach((el) => {
+            if (el.contains(searchContainer)) return;
+
+            if (rawValue === "") {
+                el.style.display = ""; 
+            } else {
+                const textContent = el.textContent;
+                
+                const isMatched = isRegex 
+                    ? regexObj.test(textContent) 
+                    : textContent.toLowerCase().includes(rawValue.toLowerCase()); 
+
+                if (isMatched) {
+                    el.style.display = ""; 
+                    visibleCount++;
+                } else {
+                    el.style.display = "none"; 
+                    hiddenCount++;
+                }
+            }
+        });
+        
+        if (rawValue !== "") {
+            console.log(`[📊 篩選結果] ${isRegex ? '【正則模式】' : '【普通模式】'} 顯示項目: ${visibleCount} 項 | 隱藏項目: ${hiddenCount} 項`);
+        }
+    };
+
+    const debouncedFilter = debounce(filterElements, 200);
+    input.addEventListener('input', debouncedFilter);
+
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault(); 
+            debouncedFilter(); 
+        }
+    });
+
+    // ==========================================
+    // 快捷鍵與功能還原邏輯
+    // ==========================================
+    window.addEventListener('keydown', (e) => {
+        const isCrossPlatformAltF = e.altKey && e.code === 'KeyF';
+
+        if (isCrossPlatformAltF) {
+            e.preventDefault();
+            e.stopPropagation();
+            
+            const isHidden = searchContainer.style.display === 'none';
+            
+            if (isHidden) {
+                // 喚醒搜尋欄
+                searchContainer.style.display = 'flex';
+                input.focus();
+                searchContainer.style.opacity = '1'; 
+            } else {
+                // ⭐ 核心修正：再次按下快捷鍵隱藏搜尋欄時，一律安全重設網頁
+                resetAndClose();
+            }
+            return;
+        }
+        
+        if (e.key === 'Escape' && searchContainer.style.display === 'flex') {
+            resetAndClose();
+        }
+    });
+
+    closeBtn.addEventListener('click', resetAndClose);
+
+    // 通用重設關閉函數
+    function resetAndClose() {
+        input.value = "";
+        filterElements(); // 強制即時還原所有隱藏項目，無視防抖
+        searchContainer.style.display = 'none';
+    }
+})();
